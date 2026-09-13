@@ -13,7 +13,7 @@ use std::time::Duration;
 use ipc::{IpcClient, Request, Response};
 
 #[derive(Parser)]
-#[command(name = "panda-dl", author = "pandac", version = "0.1.0", about = "Fast multi-part & torrent downloader for Omarchy")]
+#[command(name = "panda-dl", author = "pandac", version, about = "Fast multi-part & torrent downloader for Omarchy")]
 struct Cli {
     #[command(subcommand)]
     command: Option<Commands>,
