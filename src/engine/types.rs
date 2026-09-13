@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 pub enum DownloadKind {
     Http,
     Torrent,
+    Youtube,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
