@@ -463,38 +463,36 @@ impl Engine {
     }
 
     pub async fn pause_download(&self, id: &str) -> Result<()> {
-        let mut tasks = self.tasks.write().await;
-        let task = match tasks.get_mut(id) {
-            Some(t) => t,
-            None => bail!("Task not found"),
+        let kind = {
+            let mut tasks = self.tasks.write().await;
+            let task = match tasks.get_mut(id) {
+                Some(t) => t,
+                None => bail!("Task not found"),
+            };
+            task.status = DownloadStatus::Paused;
+            task.download_speed = 0;
+            task.kind.clone()
         };
 
-        match task.kind {
+        match kind {
             DownloadKind::Http => {
                 if let Some(active) = self.http_active.lock().await.remove(id) {
                     active.cancel_token.cancel();
                 }
-                task.status = DownloadStatus::Paused;
-                task.download_speed = 0;
             }
             DownloadKind::Youtube => {
                 if let Some(active) = self.youtube_active.lock().await.remove(id) {
                     active.cancel_token.cancel();
                 }
-                task.status = DownloadStatus::Paused;
-                task.download_speed = 0;
             }
             DownloadKind::Torrent => {
-                if let Some(handle) = self.torrent_active.lock().await.get(id) {
-                    self.torrent.pause(handle).await?;
+                let handle = self.torrent_active.lock().await.get(id).cloned();
+                if let Some(handle) = handle {
+                    let _ = self.torrent.pause(&handle).await;
                 }
-                task.status = DownloadStatus::Paused;
-                task.download_speed = 0;
-                task.upload_speed = 0;
             }
         }
 
-        drop(tasks);
         self.save_tasks().await?;
         Ok(())
     }
@@ -553,11 +551,10 @@ impl Engine {
                 });
             }
             DownloadKind::Torrent => {
-                let active = self.torrent_active.lock().await;
-                if let Some(handle) = active.get(id) {
-                    self.torrent.unpause(handle).await?;
+                let handle = self.torrent_active.lock().await.get(id).cloned();
+                if let Some(handle) = handle {
+                    let _ = self.torrent.unpause(&handle).await;
                 } else {
-                    drop(active);
                     let handle = self.torrent.add(&uri, Some(&output_path)).await?;
                     self.torrent_active.lock().await.insert(id.to_string(), handle);
                 }
@@ -578,9 +575,14 @@ impl Engine {
             active.cancel_token.cancel();
         }
 
-        let mut tasks = self.tasks.write().await;
-        if let Some(task) = tasks.remove(id) {
-            if let Some(handle) = self.torrent_active.lock().await.remove(id) {
+        let task = {
+            let mut tasks = self.tasks.write().await;
+            tasks.remove(id)
+        };
+
+        if let Some(task) = task {
+            let handle = self.torrent_active.lock().await.remove(id);
+            if let Some(handle) = handle {
                 let _ = self.torrent.remove(&handle, delete_file).await;
             }
 
@@ -594,7 +596,6 @@ impl Engine {
             }
         }
 
-        drop(tasks);
         self.save_tasks().await?;
         Ok(())
     }
