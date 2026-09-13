@@ -40,7 +40,7 @@ impl YoutubeManager {
             .arg(out_template.to_string_lossy().as_ref())
             .arg(uri)
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
+            .stderr(Stdio::null())
             .kill_on_drop(true)
             .spawn()
             .map_err(|e| anyhow!("Failed to spawn yt-dlp: {}", e))?;

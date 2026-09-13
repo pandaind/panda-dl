@@ -547,6 +547,7 @@ impl Engine {
                             t.downloaded_bytes = downloaded_atomic.load(std::sync::atomic::Ordering::Relaxed);
                         }
                     }
+                    drop(tasks);
                     let _ = engine.save_tasks().await;
                 });
             }
@@ -601,7 +602,9 @@ impl Engine {
     }
 
     pub async fn get_status(&self) -> DaemonStatus {
+        println!("get_status: acquiring tasks.read()");
         let tasks = self.tasks.read().await;
+        println!("get_status: acquired tasks.read()");
         let mut list: Vec<DownloadTask> = tasks.values().cloned().collect();
         list.sort_by(|a, b| b.created_at.cmp(&a.created_at));
 
@@ -623,7 +626,9 @@ impl Engine {
         loop {
             interval.tick().await;
 
+            println!("monitor_loop: acquiring tasks.write()");
             let mut tasks = self.tasks.write().await;
+            println!("monitor_loop: acquired tasks.write()");
             let mut speeds = self.last_speeds.lock().await;
 
             // Update HTTP tasks
