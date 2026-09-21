@@ -3,7 +3,7 @@ use std::process::Stdio;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 use tokio_util::sync::CancellationToken;
-use tracing::{info, warn};
+use tracing::warn;
 use regex::Regex;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;

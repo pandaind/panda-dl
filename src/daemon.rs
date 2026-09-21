@@ -22,16 +22,18 @@ pub async fn run_daemon() -> Result<()> {
     // Spawn clipboard watcher
     let engine_for_clip = Arc::clone(&engine);
     let config_for_clip = Arc::clone(&config);
-    watcher.start_listener(move |text, _kind| {
-        let engine = Arc::clone(&engine_for_clip);
-        let config = Arc::clone(&config_for_clip);
-        async move {
-            let req = Request::ClipboardEvent { text };
-            let _ = IpcServer::handle_request(req, &engine, &config).await;
-        }
-    }).await;
+    watcher
+        .start_listener(move |text, _kind| {
+            let engine = Arc::clone(&engine_for_clip);
+            let config = Arc::clone(&config_for_clip);
+            async move {
+                let req = Request::ClipboardEvent { text };
+                let _ = IpcServer::handle_request(req, &engine, &config).await;
+            }
+        })
+        .await;
 
-    // Start IPC Server
+    // Start IPC server
     let server = IpcServer::new(Arc::clone(&engine), Arc::clone(&config));
 
     tokio::select! {

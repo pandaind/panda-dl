@@ -7,7 +7,15 @@ use tokio::process::Command;
 use tokio::sync::Mutex;
 use tracing::{info, warn};
 
+/// Kinds of downloadable content the clipboard watcher can detect.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DetectedKind {
+    Magnet,
+    TorrentUrl,
+    DirectFile,
+}
 
+/// Watches the Wayland clipboard for downloadable URLs and magnet links.
 pub struct ClipboardWatcher {
     last_captured: Arc<Mutex<(String, Instant)>>,
     enabled: Arc<AtomicBool>,
@@ -16,7 +24,10 @@ pub struct ClipboardWatcher {
 impl ClipboardWatcher {
     pub fn new(enabled: bool) -> Self {
         Self {
-            last_captured: Arc::new(Mutex::new((String::new(), Instant::now() - Duration::from_secs(100)))),
+            last_captured: Arc::new(Mutex::new((
+                String::new(),
+                Instant::now() - Duration::from_secs(100),
+            ))),
             enabled: Arc::new(AtomicBool::new(enabled)),
         }
     }
@@ -30,8 +41,10 @@ impl ClipboardWatcher {
         self.enabled.load(Ordering::Relaxed)
     }
 
+    /// Returns the detected kind if the text looks like something we can download.
     pub fn is_downloadable(text: &str) -> Option<DetectedKind> {
         let trimmed = text.trim();
+
         if trimmed.starts_with("magnet:?") && trimmed.contains("xt=urn:btih:") {
             return Some(DetectedKind::Magnet);
         }
@@ -60,6 +73,8 @@ impl ClipboardWatcher {
         None
     }
 
+    /// Start watching the Wayland clipboard in the background.
+    /// Calls `on_detected` for each new downloadable entry (deduplicates within 30 s).
     pub async fn start_listener<F, Fut>(self: Arc<Self>, on_detected: F)
     where
         F: Fn(String, DetectedKind) -> Fut + Send + Sync + 'static,
@@ -69,7 +84,6 @@ impl ClipboardWatcher {
             info!("Starting Wayland clipboard watcher (wl-paste --watch)...");
 
             loop {
-                // Run wl-paste in watch mode
                 let mut child = match Command::new("wl-paste")
                     .arg("--watch")
                     .arg("cat")
@@ -98,7 +112,7 @@ impl ClipboardWatcher {
                             let mut last = self.last_captured.lock().await;
                             let (prev_text, prev_time) = &*last;
 
-                            // Deduplicate: don't re-trigger if same URL was captured in last 30s
+                            // Deduplicate: don't re-trigger if same URL was captured within 30 s
                             if prev_text == &text && prev_time.elapsed() < Duration::from_secs(30) {
                                 continue;
                             }
@@ -117,28 +131,4 @@ impl ClipboardWatcher {
             }
         });
     }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DetectedKind {
-    Magnet,
-    TorrentUrl,
-    DirectFile,
-}
-
-pub fn send_notification(title: &str, body: &str) {
-    let title_owned = title.to_string();
-    let body_owned = body.to_string();
-
-    tokio::spawn(async move {
-        let _ = Command::new("notify-send")
-            .arg("-a")
-            .arg("Panda Downloader")
-            .arg("-i")
-            .arg("download")
-            .arg(&title_owned)
-            .arg(&body_owned)
-            .status()
-            .await;
-    });
 }

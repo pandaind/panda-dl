@@ -1,5 +1,4 @@
-use anyhow::{bail, Context, Result};
-use serde::{Deserialize, Serialize};
+use anyhow::{Context, Result};
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -8,61 +7,8 @@ use tokio::sync::RwLock;
 use tracing::{error, info, warn};
 
 use crate::config::Config;
-use crate::engine::types::DaemonStatus;
 use crate::engine::Engine;
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "action", rename_all = "snake_case")]
-pub enum Request {
-    Status,
-    Add {
-        uri: String,
-        #[serde(default)]
-        dir: Option<String>,
-        #[serde(default)]
-        parts: Option<usize>,
-    },
-    Pause {
-        id: String,
-    },
-    Resume {
-        id: String,
-    },
-    Remove {
-        id: String,
-        #[serde(default)]
-        delete_file: bool,
-    },
-    OpenFile {
-        id: String,
-    },
-    OpenFolder {
-        id: String,
-    },
-    GetConfig,
-    SetConfig {
-        config: Config,
-    },
-    ClipboardEvent {
-        text: String,
-    },
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "status", rename_all = "snake_case")]
-pub enum Response {
-    Ok {
-        #[serde(skip_serializing_if = "Option::is_none")]
-        id: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        message: Option<String>,
-    },
-    Status(DaemonStatus),
-    Config(Config),
-    Error {
-        message: String,
-    },
-}
+use super::types::{Request, Response};
 
 pub struct IpcServer {
     engine: Arc<Engine>,
@@ -157,7 +103,7 @@ impl IpcServer {
                 Response::Status(status)
             }
             Request::Add { uri, dir, parts } => {
-                let custom_dir = dir.map(PathBuf::from);
+                let custom_dir = dir.map(std::path::PathBuf::from);
                 match engine.add_download(&uri, custom_dir, parts).await {
                     Ok(id) => Response::Ok {
                         id: Some(id),
@@ -220,17 +166,16 @@ impl IpcServer {
             Request::OpenFolder { id } => {
                 let status = engine.get_status().await;
                 if let Some(task) = status.downloads.iter().find(|t| t.id == id) {
-                    let path = PathBuf::from(&task.output_path);
+                    let path = std::path::PathBuf::from(&task.output_path);
                     let folder = if path.is_dir() {
                         path
                     } else {
                         path.parent().map(|p| p.to_path_buf()).unwrap_or(path)
                     };
                     tokio::spawn(async move {
-                        let _ = tokio::process::Command::new("xdg-open")
-                            .arg(&folder)
-                            .status()
-                            .await;
+                        let mut cmd = tokio::process::Command::new("xdg-open");
+                        cmd.arg(&folder);
+                        let _ = cmd.spawn();
                     });
                     Response::Ok {
                         id: Some(id),
@@ -292,33 +237,6 @@ impl IpcServer {
                     }
                 }
             }
-        }
-    }
-}
-
-pub struct IpcClient;
-
-impl IpcClient {
-    pub async fn send(req: Request) -> Result<Response> {
-        let path = IpcServer::socket_path();
-        if !path.exists() {
-            bail!("Panda-DL daemon is not running (socket not found at {})", path.display());
-        }
-
-        let stream = UnixStream::connect(&path)
-            .await
-            .context("Failed to connect to Panda-DL socket")?;
-
-        let (reader, mut writer) = stream.into_split();
-        let payload = serde_json::to_string(&req)? + "\n";
-        writer.write_all(payload.as_bytes()).await?;
-
-        let mut lines = BufReader::new(reader).lines();
-        if let Some(line) = lines.next_line().await? {
-            let resp: Response = serde_json::from_str(&line)?;
-            Ok(resp)
-        } else {
-            bail!("Connection closed without response");
         }
     }
 }
